@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login,logout
 from django.contrib.auth.forms import UserCreationForm
-from .models import Room , Topic
+from .models import Room , Topic , Message
 from .forms import RoomForm
 # Create your views here.
 #rooms=[
@@ -20,7 +20,7 @@ def loginPage(request):
       return redirect('home')
 
    if request.method== 'POST':
-      username= request.POST.get('username')
+      username= request.POST.get('username').lower()
       password= request.POST.get('password')
 
       try :
@@ -44,11 +44,21 @@ def logoutUser(request):
    return redirect('home')
 
 def registerPage(request):
-   page = 'register'
+   #page = 'register'
    form= UserCreationForm()
+   if request.method == 'POST':
+      form= UserCreationForm(request.POST)
+      if form.is_valid():
+         User=form.save(commit=False)
+         User.username= User.username.lower()
+         User.save()
+         login(request,User)
+         return redirect('home')
+      else:
+           messages.error(request, 'An error occurred during registration process')
    return  render(request, 'base/login_register.html',{'form':form})
    
-
+#home
 def home(request):
   q= request.GET.get('q') if request.GET.get('q') != None else ''
   rooms= Room.objects.filter(
@@ -66,7 +76,17 @@ def home(request):
 
 def room(request,pk):
   room= Room.objects.get(id=pk)
-  context={'room': room}    
+  room_messages=room.message_set.all().order_by('-created')
+  participants=room.participants.all()
+  if request.method== 'POST':
+     message= Message.objects.create (
+         user=request.user,
+         room= room,
+         body=request.POST.get('body')
+     )
+     room.participants.add(request.user)
+     return redirect('room',pk=room.id)
+  context={'room': room, 'room_messages':room_messages, 'participants':participants}    
   return render(request, 'base/room.html', context)
 
 
@@ -97,6 +117,7 @@ def updateRoom(request, pk):
   context={'form': form}
   return render(request, 'base/room_form.html', context)
 
+@login_required(login_url='login')
 def deleteRoom(request, pk):
    room = Room.objects.get(id=pk)
    if request.user != room.host :
@@ -105,3 +126,13 @@ def deleteRoom(request, pk):
       room.delete()
       return redirect ('home')
    return render(request, 'base/delete.html',{'obj': room})
+
+@login_required(login_url='login')
+def deleteMessage(request, pk):
+   message = Message.objects.get(id=pk)
+   if request.user != message.user :
+     return HttpResponse('You are not allowed here')
+   if request.method == 'POST':
+      message.delete()
+      return redirect ('home')
+   return render(request, 'base/delete.html',{'obj': message})
